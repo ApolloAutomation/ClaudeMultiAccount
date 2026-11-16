@@ -31,7 +31,7 @@ struct OnboardingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("Step \(step.rawValue + 1) of \(Step.allCases.count) · \(step.title)")
-                        .font(.subheadline.weight(.medium))
+                        .font(.headline)
                         .foregroundStyle(.secondary)
                     content
                 }
@@ -59,7 +59,7 @@ struct OnboardingView: View {
             .controlSize(.large)
             .padding(16)
         }
-        .frame(width: 640, height: 560)
+        .frame(width: 720, height: 640)
         .interactiveDismissDisabled()
         .fileImporter(isPresented: $choosingBackup, allowedContentTypes: [.zip]) { result in
             if case .success(let url) = result {
@@ -102,7 +102,7 @@ struct OnboardingView: View {
                 }
             }
             Text("Each profile needs its own Claude account. This app doesn't provide access to Claude or change usage limits.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.body).foregroundStyle(.secondary)
         }
     }
 
@@ -110,7 +110,7 @@ struct OnboardingView: View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).fontWeight(.semibold)
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         } icon: {
             Image(systemName: symbol).foregroundStyle(.tint).font(.title3)
@@ -127,7 +127,7 @@ struct OnboardingView: View {
                         VStack(alignment: .leading) {
                             Text("Claude Desktop is installed").fontWeight(.semibold)
                             Text("\(model.abbreviated(info.appURL)) · version \(info.version)")
-                                .font(.callout.monospaced()).foregroundStyle(.secondary)
+                                .font(.body.monospaced()).foregroundStyle(.secondary)
                         }
                     } icon: {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.title2)
@@ -187,7 +187,7 @@ struct OnboardingView: View {
             .scrollDisabled(true)
             .frame(height: 90)
             Text("You can change this later in Settings. Turning it off hands links back to Claude.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.body).foregroundStyle(.secondary)
         }
     }
 

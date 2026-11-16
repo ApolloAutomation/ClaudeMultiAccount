@@ -35,16 +35,16 @@ struct SourceChoiceList: View {
             ForEach(choices, id: \.self) { choice in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(choice.title)
+                        Text(choice.title).font(.title3)
                         if choice == recommended {
                             Text("Recommended")
-                                .font(.caption2.weight(.semibold))
+                                .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 6).padding(.vertical, 1)
                                 .background(Color.accentColor.opacity(0.15), in: .capsule)
                                 .foregroundStyle(.tint)
                         }
                     }
-                    Text(choice.detail).font(.callout).foregroundStyle(.secondary)
+                    Text(choice.detail).font(.body).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 3)
@@ -176,7 +176,14 @@ struct ProfileIdentityFields: View {
         Section {
             HStack(spacing: 12) {
                 ProfileBadge(letter: name.first.map { String($0).uppercased() } ?? "?", color: color, size: 40)
-                TextField("Name", text: $name, prompt: Text("e.g. Work"))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Profile name").font(.subheadline).foregroundStyle(.secondary)
+                    TextField("Profile name", text: $name, prompt: Text("e.g. Work"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .font(.title3)
+                        .controlSize(.large)
+                }
             }
             if let nameError {
                 Text(nameError).font(.caption).foregroundStyle(.red)
