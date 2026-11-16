@@ -74,7 +74,8 @@ public struct BundleBuilder: Sendable {
         let exe = macOS.appending(path: ProfileInfoPlist.executableName)
         try fm.copyItem(at: agentBinary, to: exe)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: exe.path)
-        try IconRenderer.writeICNS(letter: profile.name, color: profile.color,
+        let base = await MainActor.run { IconRenderer.claudeBaseIcon(paths: paths) }
+        try IconRenderer.writeICNS(letter: profile.name, color: profile.color, base: base,
                                    to: resources.appending(path: "\(ProfileInfoPlist.iconFileName).icns"))
         Self.stripExtendedAttributes(staged)
 

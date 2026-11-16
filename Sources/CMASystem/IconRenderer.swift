@@ -32,6 +32,65 @@ public enum IconRenderer {
         return (top, bottom)
     }
 
+    /// Claude Desktop's own icon, read from the installed app at build time (never shipped by us).
+    /// Profile icons put a colored letter badge on it so they read as "Claude, for this account".
+    @MainActor
+    public static func claudeBaseIcon(paths: AppPaths = AppPaths()) -> CGImage? {
+        guard let app = ClaudeLocator(paths: paths).locate()?.url else { return nil }
+        let image = NSWorkspace.shared.icon(forFile: app.path)
+        var rect = CGRect(x: 0, y: 0, width: 1024, height: 1024)
+        image.size = rect.size
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+    }
+
+    /// Claude's icon with a colored, white-ringed letter badge in the lower-right corner.
+    public static func renderBadged(base: CGImage, letter: String, color: ProfileColor, size: Int) -> CGImage? {
+        guard size > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let s = CGFloat(size)
+        ctx.interpolationQuality = .high
+        ctx.draw(base, in: CGRect(x: 0, y: 0, width: s, height: s))
+
+        // Badge: ~42% of the canvas, bottom-right, inside the icon grid.
+        let side = s * 0.42
+        let ring = s * 0.028
+        let badge = CGRect(x: s * 0.925 - side, y: s * 0.075, width: side, height: side)
+        let radius = side * 0.27
+        let outer = badge.insetBy(dx: -ring, dy: -ring)
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.008), blur: s * 0.02,
+                      color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.35))
+        ctx.addPath(CGPath(roundedRect: outer, cornerWidth: radius + ring, cornerHeight: radius + ring, transform: nil))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        let g = gradient(color)
+        let colors = [CGColor(srgbRed: g.top.0, green: g.top.1, blue: g.top.2, alpha: 1),
+                      CGColor(srgbRed: g.bottom.0, green: g.bottom.1, blue: g.bottom.2, alpha: 1)] as CFArray
+        guard let grad = CGGradient(colorsSpace: space, colors: colors, locations: [0, 1]) else { return nil }
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: badge, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        ctx.clip()
+        ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: badge.maxY), end: CGPoint(x: 0, y: badge.minY), options: [])
+        ctx.restoreGState()
+
+        let ch = Slug.badgeLetter(letter)
+        if !ch.isEmpty {
+            let font = NSFont.systemFont(ofSize: side * 0.62, weight: .heavy) as CTFont
+            let attrs: [NSAttributedString.Key: Any] = [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+            ]
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: ch, attributes: attrs))
+            let b = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+            ctx.textPosition = CGPoint(x: badge.midX - b.width / 2 - b.minX, y: badge.midY - b.height / 2 - b.minY)
+            CTLineDraw(line, ctx)
+        }
+        return ctx.makeImage()
+    }
+
     public static func render(letter: String, color: ProfileColor, size: Int) -> CGImage? {
         guard size > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -81,16 +140,18 @@ public enum IconRenderer {
         return try encode([img], type: UTType.png.identifier as CFString)
     }
 
-    public static func icnsData(letter: String, color: ProfileColor) throws -> Data {
+    public static func icnsData(letter: String, color: ProfileColor, base: CGImage? = nil) throws -> Data {
         let images = try icnsSizes.map { size -> CGImage in
-            guard let i = render(letter: letter, color: color, size: size) else { throw IconRendererError.renderFailed }
+            let image = base.flatMap { renderBadged(base: $0, letter: letter, color: color, size: size) }
+                ?? render(letter: letter, color: color, size: size)
+            guard let i = image else { throw IconRendererError.renderFailed }
             return i
         }
         return try encode(images, type: "com.apple.icns" as CFString)
     }
 
-    public static func writeICNS(letter: String, color: ProfileColor, to url: URL) throws {
-        try AtomicFile.write(icnsData(letter: letter, color: color), to: url)
+    public static func writeICNS(letter: String, color: ProfileColor, base: CGImage? = nil, to url: URL) throws {
+        try AtomicFile.write(icnsData(letter: letter, color: color, base: base), to: url)
     }
 
     static func encode(_ images: [CGImage], type: CFString) throws -> Data {

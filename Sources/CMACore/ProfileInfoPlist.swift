@@ -2,7 +2,7 @@ import Foundation
 
 /// The CMA* keys of a generated profile app's Info.plist.
 public struct ProfileInfoPlist: Sendable, Equatable {
-    public static let builderVersion = 1
+    public static let builderVersion = 2  // 2: icons are Claude's icon + letter badge
     public static let executableName = "ProfileAgent"
     public static let iconFileName = "ProfileIcon"
     public static let minimumSystemVersion = "26.0"

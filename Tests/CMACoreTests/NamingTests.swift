@@ -62,7 +62,7 @@ import Testing
         #expect(raw["LSUIElement"] as? Bool == true)
         #expect(raw["CFBundleName"] as? String == "Claude (Work Stuff)")
         #expect(raw["CFBundleIdentifier"] as? String == p.bundleIdentifier)
-        #expect(raw["CMABuilderVersion"] as? Int == 1)
+        #expect(raw["CMABuilderVersion"] as? Int == ProfileInfoPlist.builderVersion)
         #expect(raw["CMABorderWidth"] as? Int == 6)
         let parsed = try #require(ProfileInfoPlist.parse(data))
         #expect(parsed.profileID == p.id)
@@ -71,7 +71,7 @@ import Testing
         #expect(parsed.color == .teal)
         #expect(!ProfileInfoPlist.isStale(parsed, agentHash: "abc"))
         #expect(ProfileInfoPlist.isStale(parsed, agentHash: "def"))
-        #expect(ProfileInfoPlist.isStale(parsed, agentHash: "abc", builderVersion: 2))
+        #expect(ProfileInfoPlist.isStale(parsed, agentHash: "abc", builderVersion: ProfileInfoPlist.builderVersion + 1))
         #expect(ProfileInfoPlist.isStale(nil, agentHash: "abc"))
         #expect(!parsed.differs(from: p, paths: t.paths))
         var renamed = p; renamed.name = "Other"
