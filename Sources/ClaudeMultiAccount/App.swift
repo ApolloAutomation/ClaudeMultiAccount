@@ -122,6 +122,6 @@ struct ClaudeMultiAccountApp: App {
             MenuBarLabel()
                 .environment(model)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }
