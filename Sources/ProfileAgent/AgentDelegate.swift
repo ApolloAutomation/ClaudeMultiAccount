@@ -53,6 +53,30 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// Clicking the badged Dock tile (or picking it in ⌘-Tab) activates the agent; hand focus to Claude.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let s = session, s.isAlive else { return }
+        Task { await openOrActivate() }
+    }
+
+    /// Right-click menu on the badged Dock tile.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let running = session?.isAlive == true
+        let front = NSMenuItem(title: running ? "Bring to Front" : "Open", action: #selector(dockBringToFront), keyEquivalent: "")
+        front.target = self
+        menu.addItem(front)
+        if running {
+            let quit = NSMenuItem(title: "Quit \(config?.profileName ?? "Profile")", action: #selector(dockQuit), keyEquivalent: "")
+            quit.target = self
+            menu.addItem(quit)
+        }
+        return menu
+    }
+
+    @objc private func dockBringToFront() { Task { await openOrActivate() } }
+    @objc private func dockQuit() { quitClaude() }
+
     func applicationWillTerminate(_ notification: Notification) {
         border?.stop()
         lock?.unlock()
@@ -105,6 +129,8 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
     private func adopt(pid: Int32) {
         session?.cancel()
         session = ClaudeSession(pid: pid) { [weak self] in self?.claudeExited(pid: pid) }
+        // Show as a running app so the pinned badged tile gets its dot and Dock menu.
+        NSApp.setActivationPolicy(.regular)
         postState()
         startBorder(pid: pid)
     }
