@@ -1,0 +1,136 @@
+name: Release
+
+# Push a tag like v1.2.0 to publish a release. Optional Developer ID signing + notarization runs only when
+# these repository secrets exist:
+#   MACOS_CERT_P12          base64 of a "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD     its password
+#   MACOS_SIGN_IDENTITY     e.g. "Developer ID Application: Apollo Automation (TEAMID)"
+#   NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD (app-specific password)
+# Without them the app is ad-hoc signed and users must allow it in Privacy & Security.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish, e.g. v1.2.0
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      APP_NAME: Claude Multi Account
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Version from tag
+        run: |
+          [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.]+)?$ ]] || { echo "bad tag: $TAG"; exit 1; }
+          echo "VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
+          if [[ -n "${BASH_REMATCH[2]}" ]]; then echo "PRERELEASE=1" >> "$GITHUB_ENV"; fi
+
+      - name: Test
+        run: swift test
+
+      - name: Import signing certificate
+        id: cert
+        env:
+          P12: ${{ secrets.MACOS_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          if [[ -z "$P12" || -z "$IDENTITY" ]]; then
+            echo "No signing secrets; using ad-hoc signature."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASS="$(uuidgen)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "signed=1" >> "$GITHUB_OUTPUT"
+
+      - name: Build universal app
+        env:
+          UNIVERSAL: '1'
+        run: scripts/build-app.sh
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          BASE="Claude-Multi-Account-$VERSION"
+          ditto -c -k --keepParent --sequesterRsrc "build/$APP_NAME.app" "dist/$BASE.zip"
+          STAGE="$RUNNER_TEMP/dmg"
+          mkdir -p "$STAGE"
+          ditto "build/$APP_NAME.app" "$STAGE/$APP_NAME.app"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "dist/$BASE.dmg"
+          if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+            codesign --force --sign "$CODESIGN_IDENTITY" --timestamp "dist/$BASE.dmg"
+          fi
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+
+      - name: Notarize
+        if: steps.cert.outputs.signed == '1'
+        env:
+          APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          if [[ -z "$APPLE_ID" || -z "$TEAM_ID" || -z "$NOTARY_PASSWORD" ]]; then
+            echo "No notary secrets; skipping notarization."
+            exit 0
+          fi
+          xcrun notarytool submit "dist/$BASE.dmg" --apple-id "$APPLE_ID" --team-id "$TEAM_ID" \
+            --password "$NOTARY_PASSWORD" --wait --timeout 30m
+          xcrun stapler staple "dist/$BASE.dmg"
+          # Rebuild the zip from a stapled app so both downloads open offline.
+          xcrun stapler staple "build/$APP_NAME.app"
+          rm -f "dist/$BASE.zip"
+          ditto -c -k --keepParent --sequesterRsrc "build/$APP_NAME.app" "dist/$BASE.zip"
+          echo "NOTARIZED=1" >> "$GITHUB_ENV"
+
+      - name: Checksums
+        run: cd dist && shasum -a 256 ./*.dmg ./*.zip | sed 's| \./| |' > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${NOTARIZED:-0}" == "1" ]]; then
+            NOTE="Signed with Developer ID and notarized by Apple."
+          else
+            NOTE="This build is not notarized. After moving it to Applications, open **System Settings → Privacy & Security** and click **Open Anyway**, or run \`xattr -dr com.apple.quarantine \"/Applications/$APP_NAME.app\"\`."
+          fi
+          printf '**Requires macOS 26 and [Claude Desktop](https://claude.ai/download).**\n\n%s\n' "$NOTE" > "$RUNNER_TEMP/notes.md"
+          FLAGS=(--title "$APP_NAME $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --generate-notes --verify-tag)
+          [[ "${PRERELEASE:-0}" == "1" ]] && FLAGS+=(--prerelease)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* "${FLAGS[@]}"
+          fi
+
+      - name: Clean up keychain
+        if: always() && steps.cert.outputs.signed == '1'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
