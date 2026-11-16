@@ -10,6 +10,8 @@ window, with its own sign-in, settings, MCP servers and Claude Code sessions.
 
 Free and open source. No account, no license key, no analytics, no network calls.
 
+![Claude Multi Account showing the Work profile: running status, 5-hour and weekly plan usage, keyboard shortcut, Dock and color settings](docs/images/profile-detail.png)
+
 > **Not affiliated with Anthropic.** "Claude" is a trademark of Anthropic, PBC. This app launches the
 > official Claude Desktop you already have installed; it never modifies it.
 
@@ -45,6 +47,14 @@ records locally.
 
 **Extras** — launch at login, front profile's letter in the menu bar, pause Spotify while Claude is using
 the microphone.
+
+### Screenshots
+
+| Onboarding | Memory page |
+|---|---|
+| ![Onboarding welcome step: several Claude accounts side by side, with W, P and C profile icons](docs/images/onboarding.png) | ![Memory page listing general CLAUDE.md rules and per-project notes for Inventory, Website and Firmware](docs/images/memory.png) |
+
+<sub>Screenshots use the app's built-in sample data (`--mock`).</sub>
 
 ## Requirements
 
