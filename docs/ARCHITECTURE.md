@@ -1,6 +1,6 @@
 # Claude Multi Account — architecture
 
-FOSS (MIT), clean-room. Findings: `docs/REVERSE_ENGINEERING.md`. Deployment target **macOS 26 only**.
+FOSS (MIT), clean-room. Deployment target **macOS 26 only**.
 UI follows **Apple Liquid Glass** (macOS 26 native apps), not the original's cream theme.
 
 ## Names
