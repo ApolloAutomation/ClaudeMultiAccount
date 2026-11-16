@@ -41,7 +41,7 @@ jobs:
         run: scripts/build-app.sh
 
       - name: Upload app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: claude-multi-account-${{ github.sha }}
           path: build/Claude Multi Account.app
