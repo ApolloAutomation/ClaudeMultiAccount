@@ -1,10 +1,11 @@
 import SwiftUI
 
 extension View {
-    /// Prominent glass button with a white label, so text stays legible on the accent fill
-    /// (plain `.glassProminent` can render the label in the tint colour, i.e. blue on blue).
+    /// Primary action button. `.glassProminent` can draw its label in the tint colour
+    /// (blue on blue, especially when the window is inactive), so use the system
+    /// prominent style, which renders as Liquid Glass on macOS 26 with a white label.
     func primaryAction() -> some View {
-        buttonStyle(.glassProminent)
-            .foregroundStyle(.white)
+        buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
     }
 }
