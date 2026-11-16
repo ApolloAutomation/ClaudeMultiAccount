@@ -34,7 +34,8 @@ jobs:
           restore-keys: spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-
 
       - name: Test
-        run: swift test
+        timeout-minutes: 10
+        run: scripts/ci-test.sh
 
       - name: Build app bundle
         run: scripts/build-app.sh
