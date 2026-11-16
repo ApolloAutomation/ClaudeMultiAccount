@@ -44,7 +44,8 @@ jobs:
           if [[ -n "${BASH_REMATCH[2]}" ]]; then echo "PRERELEASE=1" >> "$GITHUB_ENV"; fi
 
       - name: Test
-        run: swift test
+        timeout-minutes: 10
+        run: scripts/ci-test.sh
 
       - name: Import signing certificate
         id: cert
