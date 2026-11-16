@@ -64,7 +64,7 @@ public struct TerminalCommandInstaller: Sendable {
         try write(profile, to: dest)
         // Drop stale scripts from a previous name.
         for old in ownedScripts(profile) where old.standardizedFileURL != dest.standardizedFileURL {
-            try? removeOwned(old)
+            try? removeOwned(old, profileID: profile.id)
         }
         return dest
     }
@@ -73,14 +73,18 @@ public struct TerminalCommandInstaller: Sendable {
         try AtomicFile.write(TerminalScript.render(profile: profile, paths: paths), to: url, permissions: 0o755)
     }
 
-    func removeOwned(_ url: URL) throws {
-        try SafePath.require(url, within: [url.deletingLastPathComponent()])
+    /// Deletes one of our scripts: must sit inside a configured bin dir and still carry this profile's marker.
+    func removeOwned(_ url: URL, profileID: UUID) throws {
+        try SafePath.require(url, within: binDirs)
+        guard TerminalScript.check(url, profileID: profileID) == .ownedBySameProfile else {
+            throw TerminalCommandError.foreignFileExists(url.path)
+        }
         try FileManager.default.removeItem(at: url)
     }
 
     /// Removes every script of ours for this profile. Foreign files are never touched.
     public func uninstall(_ profile: Profile) throws {
-        for u in ownedScripts(profile) { try removeOwned(u) }
+        for u in ownedScripts(profile) { try removeOwned(u, profileID: profile.id) }
     }
 
     /// Creates `CLI/<UUID>/` with symlinks to the shared `~/.claude` items that exist. Existing entries are kept.

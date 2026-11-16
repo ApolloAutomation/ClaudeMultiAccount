@@ -70,19 +70,40 @@ public enum ArchivedSessionsIndex {
         return Set(arr.compactMap { $0 as? String })
     }
 
-    /// Adds ids (keeps existing order and unknown keys). Returns nil when nothing changes.
-    public static func merge(_ existing: Data?, adding: [String]) -> Data? {
-        var obj = existing.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? ["v": 1]
-        var arr = (obj["archived"] as? [Any])?.compactMap { $0 as? String } ?? []
-        let have = Set(arr)
-        let new = adding.filter { !have.contains($0) }
+    public enum MergeOutcome: Equatable, Sendable {
+        case unchanged
+        case updated(Data)
+        /// The existing index doesn't parse as `{"archived":[...]}`: refuse to rewrite it.
+        case unreadable
+    }
+
+    /// Adds ids, keeping existing entries (including non-string ones), their order and unknown keys.
+    public static func mergeOutcome(_ existing: Data?, adding: [String]) -> MergeOutcome {
+        var obj: [String: Any] = ["v": 1]
+        var arr: [Any] = []
+        if let existing {
+            guard let o = try? JSONSerialization.jsonObject(with: existing) as? [String: Any] else { return .unreadable }
+            obj = o
+            if let a = o["archived"] {
+                guard let a = a as? [Any] else { return .unreadable }
+                arr = a
+            }
+        }
+        let have = Set(arr.compactMap { $0 as? String })
         var seen = Set<String>()
-        let uniqueNew = new.filter { seen.insert($0).inserted }
-        if uniqueNew.isEmpty, existing != nil { return nil }
-        arr.append(contentsOf: uniqueNew)
+        let uniqueNew = adding.filter { !have.contains($0) && seen.insert($0).inserted }
+        if uniqueNew.isEmpty, existing != nil { return .unchanged }
+        arr.append(contentsOf: uniqueNew as [Any])
         obj["archived"] = arr
         if obj["v"] == nil { obj["v"] = 1 }
-        return try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
+        guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) else { return .unreadable }
+        return .updated(data)
+    }
+
+    /// Convenience: the merged bytes, or nil when nothing changes or the existing index is unreadable.
+    public static func merge(_ existing: Data?, adding: [String]) -> Data? {
+        if case .updated(let d) = mergeOutcome(existing, adding: adding) { return d }
+        return nil
     }
 }
 
@@ -182,6 +203,11 @@ public struct SessionCopy: Sendable, Equatable {
 public struct ArchiveIndexUpdate: Sendable, Equatable {
     public var indexURL: URL
     public var addIDs: [String]
+    /// Where the existing index is backed up before it is replaced.
+    public var backup: URL?
+    public init(indexURL: URL, addIDs: [String], backup: URL? = nil) {
+        self.indexURL = indexURL; self.addIDs = addIDs; self.backup = backup
+    }
 }
 
 public struct SessionSyncPlan: Sendable, Equatable {
@@ -277,6 +303,9 @@ public enum SessionSyncPlanner {
             return
         }
         var backup: URL?
+        let rel = destURL.path.hasPrefix(dstInv.root.path + "/") ? String(destURL.path.dropFirst(dstInv.root.path.count + 1)) : destURL.lastPathComponent
+        // Any file already at the destination (even an unparseable one) gets a backup path.
+        if FileManager.default.fileExists(atPath: destURL.path) { backup = backupRoot.appending(path: "\(dstSide.label)/\(rel)") }
         if let existing {
             if existing.contentHash == r.contentHash && !r.contentHash.isEmpty {
                 if !plan.skippedIdentical.contains(r.sessionId) { plan.skippedIdentical.append(r.sessionId) }
@@ -290,7 +319,6 @@ public enum SessionSyncPlanner {
                 }
                 return
             }
-            let rel = destURL.path.hasPrefix(dstInv.root.path + "/") ? String(destURL.path.dropFirst(dstInv.root.path.count + 1)) : destURL.lastPathComponent
             backup = backupRoot.appending(path: "\(dstSide.label)/\(rel)")
         }
         plan.copies.append(SessionCopy(sessionId: r.sessionId, from: src, source: r.url, destination: destURL,
@@ -302,7 +330,9 @@ public enum SessionSyncPlanner {
             if let i = plan.archiveUpdates.firstIndex(where: { $0.indexURL == idxURL }) {
                 plan.archiveUpdates[i].addIDs.append(r.sessionId)
             } else {
-                plan.archiveUpdates.append(ArchiveIndexUpdate(indexURL: idxURL, addIDs: [r.sessionId]))
+                let idxRel = idxURL.path.hasPrefix(dstInv.root.path + "/") ? String(idxURL.path.dropFirst(dstInv.root.path.count + 1)) : idxURL.lastPathComponent
+                plan.archiveUpdates.append(ArchiveIndexUpdate(indexURL: idxURL, addIDs: [r.sessionId],
+                                                              backup: backupRoot.appending(path: "\(dstSide.label)/\(idxRel)")))
             }
         }
     }

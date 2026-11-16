@@ -56,7 +56,12 @@ public final class LinkHandlerRegistration {
     public func enable() async throws {
         guard !isEnabled else { return }
         isEnabled = true
-        try await registry.setHandler(ourAppURL, forScheme: LinkRouting.scheme)
+        do {
+            try await registry.setHandler(ourAppURL, forScheme: LinkRouting.scheme)
+        } catch {
+            isEnabled = false // nothing is being watched, so don't claim to be on
+            throw error
+        }
         startWatching()
     }
 
@@ -91,14 +96,16 @@ public final class LinkHandlerRegistration {
         }
     }
 
-    /// Debounced re-check (Claude registers itself shortly after launch).
+    /// Debounced re-check (Claude registers itself shortly after launch). A check that is already pending is
+    /// kept, never restarted: restarting on every tick would starve the check once debounce + backoff exceeds
+    /// the safety interval.
     public func scheduleCheck() {
-        guard isEnabled else { return }
-        pending?.cancel()
+        guard isEnabled, pending == nil else { return }
         let delay = debounce + backoff
         pending = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
+            self?.pending = nil
             await self?.reclaimIfNeeded()
         }
     }

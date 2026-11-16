@@ -23,7 +23,8 @@ public struct ProcessScanner: ProcessScanning {
             .compactMap { app -> ClaudeInstance? in
                 let pid = app.processIdentifier
                 guard pid > 0 else { return nil }
-                let (kind, dir) = classify(arguments: argumentsForPID(pid))
+                // One retry: argv is briefly unreadable while a process starts or exits.
+                let (kind, dir) = classify(arguments: argumentsForPID(pid) ?? argumentsForPID(pid))
                 return ClaudeInstance(pid: pid, kind: kind, dataDir: dir,
                                       isFrontmost: pid == front, launchDate: app.launchDate)
             }
@@ -35,7 +36,8 @@ public struct ProcessScanner: ProcessScanning {
         return claudeInstances().first { ProcArgs.normalize($0.dataDir.path) == want }
     }
 
-    /// Pure classification. nil argv (sysctl refused / process gone) → foreign with empty dir: unknown, never touched.
+    /// Pure classification. nil argv (sysctl refused / process gone) → foreign with empty dir: never a routing target,
+    /// but `InstanceKind.isUnidentified`, so quit gates treat it as possibly running.
     public func classify(arguments: [String]?) -> (InstanceKind, URL) {
         guard let arguments else { return (.foreign(dataDir: ""), URL(filePath: "/dev/null")) }
         guard let raw = ProcArgs.userDataDir(from: arguments) else { return (.regular, paths.regularClaudeDir) }

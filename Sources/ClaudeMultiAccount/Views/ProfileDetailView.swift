@@ -187,7 +187,7 @@ struct ProfileDetailView: View {
                     .disabled(running)
             } label: {
                 Text("MCP servers and settings")
-                Text("Adds MCP servers, extensions, developer settings and theme that \(profile.name) doesn't have yet. Nothing it already has is changed.")
+                Text("Adds MCP servers, extensions and developer settings that \(profile.name) doesn't have yet. Nothing it already has is changed.")
             }
             LabeledContent {
                 HStack {

@@ -3,20 +3,21 @@ import Foundation
 
 /// Backing store for `persistent-apps`. The default talks to `com.apple.dock` via CFPreferences.
 public protocol DockPreferencesStore: Sendable {
-    func persistentApps() -> [Any]
+    /// nil when the value can't be read or isn't an array: callers must not write in that case.
+    func persistentApps() -> [Any]?
     func setPersistentApps(_ apps: [Any]) throws
 }
 
-public enum DockEditorError: Error, Equatable { case syncFailed }
+public enum DockEditorError: Error, Equatable { case syncFailed, readFailed }
 
 public struct CFPreferencesDockStore: DockPreferencesStore {
     public static let domain = "com.apple.dock"
     public static let key = "persistent-apps"
     public init() {}
 
-    public func persistentApps() -> [Any] {
+    public func persistentApps() -> [Any]? {
         CFPreferencesAppSynchronize(Self.domain as CFString)
-        return (CFPreferencesCopyAppValue(Self.key as CFString, Self.domain as CFString) as? [Any]) ?? []
+        return CFPreferencesCopyAppValue(Self.key as CFString, Self.domain as CFString) as? [Any]
     }
 
     public func setPersistentApps(_ apps: [Any]) throws {
@@ -34,14 +35,17 @@ public struct DockEditor: DockEditing {
         self.store = store; self.killall = killall
     }
 
-    public func isInDock(bundleID: String) -> Bool { DockPlist.contains(store.persistentApps(), bundleID: bundleID) }
+    public func isInDock(bundleID: String) -> Bool { DockPlist.contains(store.persistentApps() ?? [], bundleID: bundleID) }
 
+    /// Read-modify-write of the user's Dock. Refuses to write when the current list can't be read,
+    /// so a failed read never replaces the pinned apps with just our tile.
     public func add(appURL: URL, label: String, bundleID: String) throws {
-        try store.setPersistentApps(DockPlist.adding(store.persistentApps(), appURL: appURL, label: label, bundleID: bundleID))
+        guard let apps = store.persistentApps() else { throw DockEditorError.readFailed }
+        try store.setPersistentApps(DockPlist.adding(apps, appURL: appURL, label: label, bundleID: bundleID))
     }
 
     public func remove(bundleID: String) throws {
-        let apps = store.persistentApps()
+        guard let apps = store.persistentApps() else { throw DockEditorError.readFailed }
         guard DockPlist.contains(apps, bundleID: bundleID) else { return }
         try store.setPersistentApps(DockPlist.removing(apps, bundleID: bundleID))
     }

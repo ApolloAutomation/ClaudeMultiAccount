@@ -6,6 +6,20 @@ public enum InstanceKind: Sendable, Equatable, Hashable {
     case profile(UUID)
     /// Launched with a --user-data-dir we don't own (e.g. another tool). Read-only to us.
     case foreign(dataDir: String)
+
+    /// A Claude main process whose arguments couldn't be read: it may be regular Claude or any profile,
+    /// so quit gates must treat it as possibly the target.
+    public var isUnidentified: Bool {
+        if case .foreign(let dir) = self { return dir.isEmpty }
+        return false
+    }
+}
+
+extension Array where Element == ClaudeInstance {
+    /// Quit gate: true if an instance is `kind`, or is unidentified (argv unreadable) and so might be.
+    public func mayBeRunning(_ kind: InstanceKind) -> Bool {
+        contains { $0.kind == kind || $0.kind.isUnidentified }
+    }
 }
 
 public struct ClaudeInstance: Sendable, Identifiable, Equatable {

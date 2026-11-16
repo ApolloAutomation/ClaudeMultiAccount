@@ -45,6 +45,32 @@ public enum AtomicFile {
         try write(Data(string.utf8), to: url, permissions: permissions)
     }
 
+    /// Follows a symlink chain at `url` to the real file (which may not exist yet). Non-links return `url`.
+    public static func resolvedTarget(_ url: URL) throws -> URL {
+        var current = url
+        for _ in 0..<32 {
+            var st = stat()
+            guard lstat(current.path, &st) == 0, st.st_mode & S_IFMT == S_IFLNK else { return current }
+            let dest = try FileManager.default.destinationOfSymbolicLink(atPath: current.path)
+            current = dest.hasPrefix("/") ? URL(fileURLWithPath: dest)
+                : current.deletingLastPathComponent().appending(path: dest)
+            current = current.standardizedFileURL
+        }
+        throw AtomicFileError.posix(op: "readlink", code: ELOOP)
+    }
+
+    /// Atomic write that keeps a symlink at `url` intact (writes next to the resolved real file instead)
+    /// and keeps the existing file's permissions. New files get `defaultPermissions`.
+    public static func writePreservingLink(_ data: Data, to url: URL, defaultPermissions: mode_t = 0o644) throws {
+        let target = try resolvedTarget(url)
+        var mode = defaultPermissions
+        var st = stat()
+        if stat(target.path, &st) == 0 { mode = st.st_mode & 0o7777 }
+        try write(data, to: target, permissions: mode)
+        // open(2) applies the umask; restore the exact original mode.
+        if chmod(target.path, mode) != 0 { throw AtomicFileError.posix(op: "chmod", code: errno) }
+    }
+
     /// Serialises a JSON object (via JSONSerialization, so unknown keys survive round trips).
     public static func jsonData(_ object: Any) throws -> Data {
         guard JSONSerialization.isValidJSONObject(object) else { throw AtomicFileError.notJSONObject }

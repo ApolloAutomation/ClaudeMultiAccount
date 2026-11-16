@@ -80,6 +80,10 @@ final class LiveProfileServices: ProfileServices {
         let mover = makeMover()
         do {
             for outcome in try mover.recover() {
+                if case let .deferred(_, reason) = outcome {
+                    log.notice("interrupted move left pending: \(reason, privacy: .public)")
+                    continue
+                }
                 guard case let .needsProfile(entryID, profileID, _) = outcome else { continue }
                 if (try? await store.profile(id: profileID)) == nil {
                     let names = ((try? await store.all()) ?? []).map(\.name)
@@ -107,11 +111,22 @@ final class LiveProfileServices: ProfileServices {
                 }
             case .deleteProfile:
                 if let id, !FileManager.default.fileExists(atPath: paths.dataDir(for: id).path) {
+                    let b = BundleBuilder(paths: paths, agentBinary: URL(filePath: "/dev/null"))
+                    for app in b.installedApps(profileID: id) { try? await b.remove(appURL: app) }
                     try? await store.remove(id: id)
                     try? await state.forget(id)
                 }
             case .renameProfile:
-                if let id, let profile = try? await store.profile(id: id) { _ = try? await builder().build(profile) }
+                // Rebuild under the current name, then drop the app left under the old name so it can't
+                // recreate the profile's data folder after a delete.
+                if let id, let profile = try? await store.profile(id: id), let builder = try? builder() {
+                    let old = entry.payload["oldName"].map { paths.appURL(forName: $0) }
+                    if (try? await builder.build(profile, previousAppURL: old)) != nil {
+                        try? await builder.removeStaleApps(for: profile)
+                    } else {
+                        continue // keep the journal entry; retry at the next launch
+                    }
+                }
             case .sessionSync, .moveRegularClaude:
                 break // Each session file was written atomically with a backup; nothing to finish.
             }
@@ -198,7 +213,8 @@ final class LiveProfileServices: ProfileServices {
             if running && (nameChanged || colorChanged) {
                 throw ServiceError("Quit \(old.name) first, then change its name or color.")
             }
-            let entry = nameChanged ? try journal.begin(.renameProfile, payload: ["profileID": new.id.uuidString]) : nil
+            let entry = nameChanged
+                ? try journal.begin(.renameProfile, payload: ["profileID": new.id.uuidString, "oldName": old.name]) : nil
             try await store.update(new)
             _ = try await loadProfiles()
 
@@ -243,6 +259,7 @@ final class LiveProfileServices: ProfileServices {
                 }
                 try await store.remove(id: id)
                 try? await state.forget(id)
+                QuitToken.remove(paths: paths, profileID: id)
                 try journal.complete(entry.id)
             }
             HotKeyCenter.shared.unregister(id)
@@ -315,8 +332,11 @@ final class LiveProfileServices: ProfileServices {
             guard let instance = instance(for: target, in: scanner.claudeInstances()) else { return }
             if case .profile(let id) = target {
                 // Ask the agent first so it doesn't treat the exit as a self-update.
-                DistributedNotificationCenter.default().postNotificationName(
-                    IPC.quitProfile, object: id.uuidString, userInfo: nil, deliverImmediately: true)
+                // Authenticated with the per-profile secret; the agent ignores the request without it.
+                if let token = try? QuitToken.load(paths: paths, profileID: id) {
+                    DistributedNotificationCenter.default().postNotificationName(
+                        IPC.quitProfile, object: id.uuidString, userInfo: [QuitToken.userInfoKey: token], deliverImmediately: true)
+                }
                 if await waitForExit(instance.pid, timeout: .seconds(6)) { return }
             }
             NSRunningApplication(processIdentifier: instance.pid)?.terminate()
@@ -435,7 +455,6 @@ final class LiveProfileServices: ProfileServices {
             items += plan.addedTopLevelKeys.map { ImportItem(kind: .setting, name: $0) }
             items += plan.addedExtensions.map { ImportItem(kind: .extensionItem, name: $0) }
             if plan.copiesDeveloperSettings { items.append(ImportItem(kind: .developerSettings, name: "developer_settings.json")) }
-            items += plan.themeKeys.keys.sorted().map { ImportItem(kind: .theme, name: $0) }
             let sourceServers = ((try? AtomicFile.readJSONObject(at: source.desktopConfigJSON))?["mcpServers"] as? [String: Any])?.count ?? 0
             return ImportPreview(items: items, alreadyPresent: max(0, sourceServers - plan.addedMCPServers.count))
         }
@@ -452,7 +471,7 @@ final class LiveProfileServices: ProfileServices {
                 let plan = try SettingsImportPlanner.plan(from: source, to: dest)
                 _ = try SettingsImportExecutor(paths: paths).execute(plan, into: dest)
                 return plan.addedMCPServers.count + plan.addedPreferences.count + plan.addedTopLevelKeys.count
-                    + plan.addedExtensions.count + (plan.copiesDeveloperSettings ? 1 : 0) + plan.themeKeys.count
+                    + plan.addedExtensions.count + (plan.copiesDeveloperSettings ? 1 : 0)
             }
         }
     }
@@ -808,7 +827,7 @@ final class LiveProfileServices: ProfileServices {
     private func makeMover() -> RegularClaudeMover {
         let scanner = scanner
         return RegularClaudeMover(paths: paths, isRegularClaudeRunning: {
-            scanner.claudeInstances().contains { $0.kind == .regular }
+            scanner.claudeInstances().mayBeRunning(.regular)
         })
     }
 
@@ -838,8 +857,10 @@ final class LiveProfileServices: ProfileServices {
         list.first { Self.target(of: $0.kind) == target }
     }
 
+    /// Quit gate. A Claude process whose arguments can't be read counts as possibly `target`.
     private func isRunningNow(_ target: ClaudeTarget) -> Bool {
-        instance(for: target, in: scanner.claudeInstances()) != nil
+        let list = scanner.claudeInstances()
+        return instance(for: target, in: list) != nil || list.contains { $0.kind.isUnidentified }
     }
 
     private func requireQuit(_ target: ClaudeTarget, _ what: String) throws {
@@ -956,11 +977,17 @@ final class LiveProfileServices: ProfileServices {
             switch e {
             case .claudeNotFound: return "Claude Desktop isn't installed."
             case .launchFailed(let why), .urlForwardFailed(let why): return why
+            case .invalidURL: return "That link isn't a valid claude:// link."
             }
         case let e as URLForwarderError:
             switch e {
             case .invalidURL: return "That link isn't a valid claude:// link."
             case .sendFailed(let why): return "Couldn't hand the link to Claude: \(why)"
+            }
+        case let e as DockEditorError:
+            switch e {
+            case .readFailed: return "Couldn't read the current Dock, so it was left unchanged. Try again in a moment."
+            case .syncFailed: return "Couldn't save the Dock change."
             }
         case let e as SafePathError: return "Refused to touch a path outside the app's folders (\(e))."
         case is DataDirLockError: return "Couldn't lock the profile's data folder."

@@ -90,8 +90,11 @@ public struct BundleBuilder: Sendable {
         } else {
             try fm.moveItem(at: staged, to: dest)
         }
+        // Case-only rename on a case-insensitive volume: the "previous" app IS the new one. Fix the name's case
+        // in place instead of deleting it.
+        try Self.matchNameCase(dest)
         if let previousAppURL, previousAppURL.standardizedFileURL != dest.standardizedFileURL,
-           fm.fileExists(atPath: previousAppURL.path) {
+           fm.fileExists(atPath: previousAppURL.path), !Self.sameItem(previousAppURL, dest) {
             try await remove(appURL: previousAppURL)
         }
         if let lsregister { _ = try? await Subprocess.run(lsregister, ["-f", dest.path]) }
@@ -106,7 +109,45 @@ public struct BundleBuilder: Sendable {
         try FileManager.default.removeItem(at: appURL)
     }
 
-    public func remove(_ profile: Profile) async throws { try await remove(appURL: appURL(for: profile)) }
+    public func remove(_ profile: Profile) async throws {
+        try await remove(appURL: appURL(for: profile))
+        // Also apps left under an older name (e.g. an interrupted rename).
+        for u in installedApps(profileID: profile.id) { try await remove(appURL: u) }
+    }
+
+    /// Every app in the apps dir whose Info.plist belongs to `profileID`, under any name.
+    public func installedApps(profileID: UUID) -> [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: paths.appsDir.path)) ?? []
+        return names.filter { $0.hasSuffix(".app") }.sorted()
+            .map { paths.appsDir.appending(path: $0, directoryHint: .isDirectory) }
+            .filter { ProfileInfoPlist.read(appURL: $0)?.profileID == profileID }
+    }
+
+    /// Removes apps for `profile` that aren't its current app (left by an interrupted rename).
+    public func removeStaleApps(for profile: Profile) async throws {
+        let current = appURL(for: profile)
+        for u in installedApps(profileID: profile.id) where !Self.sameItem(u, current) {
+            try await remove(appURL: u)
+        }
+    }
+
+    /// Same file system object (device + inode); false if either is missing.
+    static func sameItem(_ a: URL, _ b: URL) -> Bool {
+        var sa = stat(), sb = stat()
+        guard lstat(a.path, &sa) == 0, lstat(b.path, &sb) == 0 else { return false }
+        return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino
+    }
+
+    /// If `url` exists on disk under a different letter case, renames it to exactly `url`'s name.
+    static func matchNameCase(_ url: URL) throws {
+        let dir = url.deletingLastPathComponent(), want = url.lastPathComponent
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        guard !names.contains(want),
+              let actual = names.first(where: { $0.caseInsensitiveCompare(want) == .orderedSame }) else { return }
+        let from = dir.appending(path: actual)
+        guard sameItem(from, url) else { return }
+        guard Darwin.rename(from.path, url.path) == 0 else { throw BundleBuilderError.verifyFailed("rename: \(errno)") }
+    }
 
     /// codesign rejects bundles carrying Finder info / resource forks.
     static func stripExtendedAttributes(_ root: URL) {

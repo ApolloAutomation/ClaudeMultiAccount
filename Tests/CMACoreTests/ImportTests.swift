@@ -22,7 +22,9 @@ import Testing
         #expect(plan.addedTopLevelKeys == ["extra"])
         #expect(plan.copiesDeveloperSettings)
         #expect(plan.addedExtensions == ["ext.one"])
-        #expect(plan.themeKeys == ["darkMode": .bool(true), "scale": .number(1.25)])
+        // Theme import was dropped: config.json is never a write, copy or backup target.
+        #expect(!plan.writes.contains { $0.destination.lastPathComponent == "config.json" })
+        #expect(!plan.copies.contains { $0.destination.lastPathComponent == "config.json" })
         #expect(plan.copies.count == 3)
 
         let cfgWrite = try #require(plan.writes.first { $0.destination.lastPathComponent == "claude_desktop_config.json" })
@@ -37,13 +39,6 @@ import Testing
         #expect((ext["extensions"] as? [String: Any])?["../evil"] == nil)
         // Nothing in the plan carries any config.json content.
         for w in plan.writes { #expect(!String(decoding: w.data, as: UTF8.self).contains("SECRET")) }
-
-        let applied = try #require(SettingsImportPlanner.applyTheme(plan.themeKeys, toConfig: try Data(contentsOf: t.url.appending(path: "dst/config.json"))))
-        let obj = try #require(try JSONSerialization.jsonObject(with: applied) as? [String: Any])
-        #expect(obj["oauth:tokenCache"] as? String == "DEST")
-        #expect(obj["locale"] as? String == "en-US")
-        #expect(obj["darkMode"] as? Bool == true)
-        #expect(obj["lastKnownAccountUuid"] == nil && obj["other"] == nil)
     }
 
     @Test func noopAndCorruptDest() throws {
@@ -52,9 +47,6 @@ import Testing
         t.write("dst/claude_desktop_config.json", "{corrupt")
         let plan = try SettingsImportPlanner.plan(from: ClaudeDataDir(t.url.appending(path: "src")), to: ClaudeDataDir(t.url.appending(path: "dst")))
         #expect(plan.isEmpty)
-        #expect(SettingsImportPlanner.applyTheme([:], toConfig: nil) == nil)
-        #expect(SettingsImportPlanner.applyTheme(["evil": .string("x")], toConfig: nil) == nil)
-        #expect(SettingsImportPlanner.applyTheme(["locale": .string("x")], toConfig: Data(#"{"locale":"y"}"#.utf8)) == nil)
         // Desktop config absent in dest: created from source, mcpServers absent OK.
         let t2 = TempDir()
         t2.writeJSON("src/claude_desktop_config.json", ["preferences": ["p": 1]])

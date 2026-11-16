@@ -99,8 +99,22 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || die "Info.plist invalid"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+# Hardened runtime blocks outgoing Apple Events without this entitlement (GURL forwarding, System Events
+# activation fallback, Spotify pause/resume).
+ENTITLEMENTS="$OUT/ClaudeMultiAccount.entitlements"
+cat > "$ENTITLEMENTS" <<ENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>
+ENT
+plutil -lint "$ENTITLEMENTS" >/dev/null || die "entitlements invalid"
+
 log "signing (identity: $IDENTITY)"
-SIGN_ARGS=(--force --sign "$IDENTITY")
+SIGN_ARGS=(--force --sign "$IDENTITY" --entitlements "$ENTITLEMENTS")
 if [[ "$IDENTITY" == "-" ]]; then SIGN_ARGS+=(--timestamp=none); else SIGN_ARGS+=(--options runtime --timestamp); fi
 codesign "${SIGN_ARGS[@]}" "$APP/Contents/Resources/ProfileAgent"
 codesign "${SIGN_ARGS[@]}" "$APP"

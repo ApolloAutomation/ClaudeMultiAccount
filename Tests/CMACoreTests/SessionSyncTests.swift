@@ -75,7 +75,8 @@ import Testing
         #expect(plan.skippedTombstoned == ["local_dead"])
         #expect(plan.skippedIdentical == ["local_same"])
         #expect(plan.skippedNotNewer.isEmpty)
-        #expect(plan.archiveUpdates == [ArchiveIndexUpdate(indexURL: t.url.appending(path: "B/\(acc)/\(org)/archived-sessions.idx"), addIDs: ["local_onlyA"])])
+        #expect(plan.archiveUpdates == [ArchiveIndexUpdate(indexURL: t.url.appending(path: "B/\(acc)/\(org)/archived-sessions.idx"), addIDs: ["local_onlyA"],
+                                                         backup: backup.appending(path: "b/\(acc)/\(org)/archived-sessions.idx"))])
     }
 
     @Test func crossAccountIsOneWayAndRehomes() throws {

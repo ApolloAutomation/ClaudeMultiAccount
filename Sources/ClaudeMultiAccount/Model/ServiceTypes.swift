@@ -73,7 +73,6 @@ enum ImportItemKind: String, Sendable {
     case setting = "Setting"
     case extensionItem = "Extension"
     case developerSettings = "Developer settings"
-    case theme = "Theme"
 
     var symbol: String {
         switch self {
@@ -81,7 +80,6 @@ enum ImportItemKind: String, Sendable {
         case .preference, .setting: "slider.horizontal.3"
         case .extensionItem: "puzzlepiece.extension"
         case .developerSettings: "hammer"
-        case .theme: "paintpalette"
         }
     }
 }

@@ -169,7 +169,8 @@ public enum MemoryOps {
         if FileManager.default.fileExists(atPath: dest.path) {
             dest = dir.appending(path: uniqueFileName(url.lastPathComponent, in: dir))
         }
-        try FileManager.default.copyItem(at: url, to: dest)
+        // Back up the real file, not a symlink pointing at it.
+        try FileManager.default.copyItem(at: try AtomicFile.resolvedTarget(url), to: dest)
         return dest
     }
 
@@ -200,13 +201,13 @@ public enum MemoryOps {
                 }
             }
             let target = destinationMemoryDir.appending(path: fileName)
-            try AtomicFile.write(note.raw, to: target)
+            try AtomicFile.writePreservingLink(Data(note.raw.utf8), to: target)
             result.written.append(target)
             index = addingIndexLine(index, title: note.title, fileName: fileName, description: note.description)
         }
         if index != originalIndex {
             if fm.fileExists(atPath: indexURL.path) { result.backedUp.append(try backup(indexURL, into: backupDir)) }
-            try AtomicFile.write(index, to: indexURL)
+            try AtomicFile.writePreservingLink(Data(index.utf8), to: indexURL)
         }
         return result
     }
@@ -252,7 +253,7 @@ public enum MemoryOps {
         let (text, added) = appendingRules(existing, notes: notes)
         guard added > 0 else { return 0 }
         if FileManager.default.fileExists(atPath: claudeMD.path) { _ = try backup(claudeMD, into: backupDir) }
-        try AtomicFile.write(text, to: claudeMD)
+        try AtomicFile.writePreservingLink(Data(text.utf8), to: claudeMD)
         return added
     }
 

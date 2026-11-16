@@ -61,6 +61,8 @@ public struct BackupArchiver: Sendable {
         }
         try await tool(zip, ["-q", "-j", out.path, manifest.path], cwd: stage)
         _ = try await inspect(out) // self-check
+        // Holds cookies and auth caches: owner-only before it ever reaches the chosen folder.
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: out.path)
 
         try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         if fm.fileExists(atPath: destination.path) {
@@ -68,6 +70,7 @@ public struct BackupArchiver: Sendable {
         } else {
             try fm.moveItem(at: out, to: destination)
         }
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         return destination
     }
 

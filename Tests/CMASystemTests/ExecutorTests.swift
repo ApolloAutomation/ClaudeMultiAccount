@@ -83,6 +83,7 @@ import Testing
         t.writeJSON("\(destRel)/claude_desktop_config.json", ["mcpServers": ["a": ["command": "keep"]]])
         t.writeJSON("\(destRel)/config.json", ["lastKnownAccountUuid": "acc"])
         let oldCfg = t.data("\(destRel)/claude_desktop_config.json")
+        let oldDestConfig = t.data("\(destRel)/config.json")
         let plan = try SettingsImportPlanner.plan(from: src, to: dst)
         let r = try SettingsImportExecutor(paths: t.paths).execute(plan, into: dst)
         let merged = try #require(try AtomicFile.readJSONObject(at: dst.desktopConfigJSON))
@@ -90,10 +91,12 @@ import Testing
         #expect((servers["a"] as? [String: Any])?["command"] as? String == "keep")
         #expect(servers["b"] != nil)
         #expect(r.backups.contains { (try? Data(contentsOf: $0)) == oldCfg })
-        let cfg = try #require(try AtomicFile.readJSONObject(at: dst.configJSON))
-        #expect(cfg["darkMode"] as? Bool == true)
-        #expect(cfg["lastKnownAccountUuid"] as? String == "acc")
-        #expect(cfg["oauth:tokenCache"] == nil)
+        // M4: config.json is never rewritten and never copied into Backups.
+        #expect(t.data("\(destRel)/config.json") == oldDestConfig)
+        #expect(!r.backups.contains { $0.lastPathComponent.lowercased().hasPrefix("config.json") })
+        #expect(throws: SettingsImportError.configJSONRefused) {
+            _ = try SettingsImportExecutor(paths: t.paths).backup(dst.configJSON, dataDir: dst.url)
+        }
     }
 }
 

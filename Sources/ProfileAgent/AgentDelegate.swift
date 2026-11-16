@@ -152,10 +152,7 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
         for url in urls { try? ClaudeLauncher.sendGetURL(url, toPID: pid) }
     }
 
-    static func validClaudeURL(_ s: String) -> URL? {
-        guard s.count <= 8192, let url = URL(string: s), url.scheme?.lowercased() == "claude" else { return nil }
-        return url
-    }
+    static func validClaudeURL(_ s: String) -> URL? { LinkRouting.parse(s) }
 
     /// `--open-url <u>` or `--open-url=<u>`; invalid values are dropped.
     static func openURLArguments(_ args: [String]) -> [URL] {
@@ -175,9 +172,13 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
         observers.append(dnc.addObserver(forName: IPC.profileChanged, object: idString, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadBorderSettings() }
         })
-        observers.append(dnc.addObserver(forName: IPC.quitProfile, object: idString, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.quitClaude() }
-        })
+        // quitProfile is honoured only with the per-profile secret the manager reads from Locks/ (0600).
+        if let id = config?.profileID, let token = try? QuitToken.load(paths: paths, profileID: id) {
+            observers.append(dnc.addObserver(forName: IPC.quitProfile, object: idString, queue: .main) { [weak self] note in
+                guard QuitToken.matches(note.userInfo?[QuitToken.userInfoKey], expected: token) else { return }
+                MainActor.assumeIsolated { self?.quitClaude() }
+            })
+        }
     }
 
     private func reloadBorderSettings() {

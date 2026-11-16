@@ -42,7 +42,7 @@ import Testing
 
 final class MemoryDockStore: DockPreferencesStore, @unchecked Sendable {
     var apps: [Any] = [["tile-data": ["bundle-identifier": "com.apple.Safari"]]]
-    func persistentApps() -> [Any] { apps }
+    func persistentApps() -> [Any]? { apps }
     func setPersistentApps(_ apps: [Any]) throws { self.apps = apps }
 }
 

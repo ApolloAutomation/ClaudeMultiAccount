@@ -11,37 +11,20 @@ public struct FileWriteOp: Sendable, Equatable {
     public var data: Data
 }
 
-/// A JSON scalar copied from config.json theme keys.
-public enum ThemeValue: Sendable, Equatable {
-    case string(String), bool(Bool), number(Double)
-    var any: Any {
-        switch self { case .string(let s): s; case .bool(let b): b; case .number(let n): n }
-    }
-    init?(_ v: Any) {
-        if let n = v as? NSNumber {
-            if CFGetTypeID(n) == CFBooleanGetTypeID() { self = .bool(n.boolValue) } else { self = .number(n.doubleValue) }
-        } else if let s = v as? String { self = .string(s) } else { return nil }
-    }
-}
-
 public struct SettingsImportPlan: Sendable, Equatable {
     public var addedMCPServers: [String] = []
     public var addedPreferences: [String] = []
     public var addedTopLevelKeys: [String] = []
     public var copiesDeveloperSettings = false
     public var addedExtensions: [String] = []
-    /// Theme keys absent in the destination config.json. Applied at execution time via `applyTheme`,
-    /// so the plan never carries the destination's config.json (which holds auth caches).
-    public var themeKeys: [String: ThemeValue] = [:]
     public var writes: [FileWriteOp] = []
     public var copies: [FileCopyOp] = []
 
-    public var isEmpty: Bool { writes.isEmpty && copies.isEmpty && themeKeys.isEmpty }
+    public var isEmpty: Bool { writes.isEmpty && copies.isEmpty }
 }
 
-/// Regular → profile import: missing-only merge; config.json limited to an allowlist of theme keys.
+/// Regular → profile import: missing-only merge. `config.json` (auth caches) is never read, written or backed up.
 public enum SettingsImportPlanner {
-    public static let themeKeyAllowlist = ["userThemeMode", "darkMode", "scale", "locale"]
 
     static func isDenied(_ key: String) -> Bool { key.lowercased().hasPrefix("oauth") }
 
@@ -130,37 +113,6 @@ public enum SettingsImportPlanner {
             }
         }
 
-        plan.themeKeys = themeKeysToAdd(sourceConfig: try? Data(contentsOf: source.configJSON),
-                                        destConfig: try? Data(contentsOf: dest.configJSON))
         return plan
-    }
-
-    /// Only allowlisted keys from the source; only those absent in the destination.
-    public static func themeKeysToAdd(sourceConfig: Data?, destConfig: Data?) -> [String: ThemeValue] {
-        guard let sourceConfig, let src = try? JSONSerialization.jsonObject(with: sourceConfig) as? [String: Any] else { return [:] }
-        let dst = destConfig.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        if destConfig != nil && dst == nil { return [:] }
-        var out: [String: ThemeValue] = [:]
-        for k in themeKeyAllowlist where dst?[k] == nil {
-            if let v = src[k], let tv = ThemeValue(v) { out[k] = tv }
-        }
-        return out
-    }
-
-    /// Adds theme keys to a destination config.json without changing any existing key. nil → nothing to write.
-    public static func applyTheme(_ keys: [String: ThemeValue], toConfig existing: Data?) -> Data? {
-        let filtered = keys.filter { themeKeyAllowlist.contains($0.key) }
-        guard !filtered.isEmpty else { return nil }
-        var obj: [String: Any]
-        if let existing {
-            guard let o = try? JSONSerialization.jsonObject(with: existing) as? [String: Any] else { return nil }
-            obj = o
-        } else {
-            obj = [:]
-        }
-        var changed = false
-        for (k, v) in filtered where obj[k] == nil { obj[k] = v.any; changed = true }
-        guard changed else { return nil }
-        return try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
     }
 }

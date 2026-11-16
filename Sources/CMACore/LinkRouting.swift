@@ -20,6 +20,14 @@ public enum LinkRouting {
         return !s.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) || $0 == " " }
     }
 
+    /// Parses and validates a `claude://` link string (same rules as `isValid`, checked on the raw text too).
+    public static func parse(_ s: String) -> URL? {
+        guard s.count <= maxLength,
+              !s.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || $0 == " " }),
+              let url = URL(string: s), isValid(url) else { return nil }
+        return url
+    }
+
     /// Foreign instances are never routing targets.
     public static func decide(url: URL, instances: [ClaudeInstance], lastActiveAt: [UUID: Date] = [:]) -> LinkDecision {
         guard isValid(url) else { return .reject }

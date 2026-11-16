@@ -7,6 +7,7 @@ public enum ClaudeLaunchError: Error, Equatable {
     case claudeNotFound
     case launchFailed(String)
     case urlForwardFailed(String)
+    case invalidURL
 }
 
 /// Launches / activates / terminates Claude Desktop instances. One instance per data dir.
@@ -104,6 +105,7 @@ public struct ClaudeLauncher: ClaudeLaunching {
 
     /// Sends kAEGetURL ('GURL') with the URL string to a specific pid.
     public static func sendGetURL(_ url: URL, toPID pid: Int32) throws {
+        guard LinkRouting.isValid(url) else { throw ClaudeLaunchError.invalidURL }
         let target = NSAppleEventDescriptor(processIdentifier: pid)
         let event = NSAppleEventDescriptor.appleEvent(
             withEventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL),

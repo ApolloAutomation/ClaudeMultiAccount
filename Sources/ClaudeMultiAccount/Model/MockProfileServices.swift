@@ -223,7 +223,6 @@ final class MockProfileServices: ProfileServices {
             ImportItem(kind: .mcpServer, name: "github"),
             ImportItem(kind: .extensionItem, name: "Desktop Commander"),
             ImportItem(kind: .developerSettings, name: "developer_settings.json"),
-            ImportItem(kind: .theme, name: "userThemeMode"),
         ], alreadyPresent: 2)
     }
     func executeImport(_ preview: ImportPreview, profile: Profile) async throws -> Int {

@@ -1,11 +1,14 @@
 import CMACore
 import Foundation
 
+public enum SettingsImportError: Error, Equatable {
+    case configJSONRefused
+}
+
 public struct SettingsImportResult: Sendable, Equatable {
     public var written: [URL] = []
     public var copied: [URL] = []
     public var backups: [URL] = []
-    public var themeApplied = false
 }
 
 /// Executes a `SettingsImportPlan` into a profile data dir. Missing-only; replaced files are backed up first.
@@ -29,6 +32,7 @@ public struct SettingsImportExecutor: Sendable {
 
         for w in plan.writes {
             try SafePath.require(w.destination, within: roots)
+            guard w.destination.lastPathComponent.lowercased() != "config.json" else { throw SettingsImportError.configJSONRefused }
             guard (try? JSONSerialization.jsonObject(with: w.data)) != nil else { throw AtomicFileError.notJSONObject }
             var mode: mode_t = 0o644
             if fm.fileExists(atPath: w.destination.path) {
@@ -45,23 +49,13 @@ public struct SettingsImportExecutor: Sendable {
             try fm.copyItem(at: c.source, to: c.destination)
             r.copied.append(c.destination)
         }
-        if !plan.themeKeys.isEmpty {
-            let existing = try? Data(contentsOf: dest.configJSON)
-            if let data = SettingsImportPlanner.applyTheme(plan.themeKeys, toConfig: existing) {
-                var mode: mode_t = 0o600
-                if existing != nil {
-                    r.backups.append(try backup(dest.configJSON, dataDir: dest.url))
-                    if let p = (try? fm.attributesOfItem(atPath: dest.configJSON.path))?[.posixPermissions] as? NSNumber { mode = mode_t(p.uint16Value) }
-                }
-                try AtomicFile.write(data, to: dest.configJSON, permissions: mode)
-                r.themeApplied = true
-            }
-        }
         return r
     }
 
     func backup(_ file: URL, dataDir: URL) throws -> URL {
         let fm = FileManager.default
+        // config.json holds auth caches: never copied into Backups.
+        guard file.lastPathComponent.lowercased() != "config.json" else { throw SettingsImportError.configJSONRefused }
         let rel = file.path.hasPrefix(dataDir.path + "/") ? String(file.path.dropFirst(dataDir.path.count + 1)) : file.lastPathComponent
         var target = backupRoot.appending(path: "\(dataDir.lastPathComponent)/\(rel)")
         var n = 2
