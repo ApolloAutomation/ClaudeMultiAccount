@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import os
 import Testing
 @testable import CMACore
 @testable import CMASystem
@@ -82,5 +83,23 @@ import Testing
         await #expect(throws: SubprocessError.timedOut(path: "/bin/sleep")) {
             try await Subprocess.run(URL(fileURLWithPath: "/bin/sleep"), ["5"], timeout: .milliseconds(200))
         }
+    }
+
+    /// Many blocking runs at once must not deadlock: runSync used to wait on GCD pool work while itself
+    /// occupying a pool thread, which hung once the pool was saturated (3-core CI runners).
+    @Test(.timeLimit(.minutes(1))) func saturatedPoolDoesNotDeadlock() async throws {
+        let n = ProcessInfo.processInfo.activeProcessorCount * 8
+        let ok = await withCheckedContinuation { (cont: CheckedContinuation<Int, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                let count = OSAllocatedUnfairLock(initialState: 0)
+                DispatchQueue.concurrentPerform(iterations: n) { _ in
+                    if let r = try? Subprocess.runSync(URL(fileURLWithPath: "/bin/echo"), ["x"]), r.stdoutString == "x\n" {
+                        count.withLock { $0 += 1 }
+                    }
+                }
+                cont.resume(returning: count.withLock { $0 })
+            }
+        }
+        #expect(ok == n)
     }
 }

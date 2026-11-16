@@ -24,15 +24,26 @@ public enum SubprocessError: Error, Equatable, CustomStringConvertible {
 }
 
 /// Runs an executable with an argv array. Never goes through a shell.
+///
+/// Pipe reads and the exit wait run on dedicated threads, never on GCD's shared pool: blocking a pool thread
+/// while waiting for other pool work deadlocks once the pool is saturated (seen on 3-core CI runners).
 public enum Subprocess {
-    private final class Box: @unchecked Sendable {
-        let lock = NSLock()
-        var data = Data()
-        var timedOut = false
-    }
-    private final class ProcessRef: @unchecked Sendable {
-        let process: Process
-        init(_ p: Process) { process = p }
+    /// Collects one pipe to EOF on its own thread.
+    private final class PipeReader: @unchecked Sendable {
+        private let done = DispatchSemaphore(value: 0)
+        private var data = Data()
+        init(_ handle: FileHandle) {
+            let t = Thread { [self] in
+                data = handle.readDataToEndOfFile()
+                done.signal()
+            }
+            t.name = "Subprocess.PipeReader"
+            t.start()
+        }
+        /// Waits for EOF; returns nil if it did not arrive in time (e.g. a grandchild still holds the pipe).
+        func result(timeout: DispatchTime = .distantFuture) -> Data? {
+            done.wait(timeout: timeout) == .success ? data : nil
+        }
     }
 
     /// Blocking run; use `run` from async code.
@@ -50,44 +61,38 @@ public enum Subprocess {
         do { try p.run() } catch {
             throw SubprocessError.launchFailed(path: executable.path, reason: error.localizedDescription)
         }
-        let errBox = Box()
-        let group = DispatchGroup()
-        group.enter()
-        let errHandle = err.fileHandleForReading
-        DispatchQueue.global(qos: .utility).async {
-            let d = errHandle.readDataToEndOfFile()
-            errBox.lock.withLock { errBox.data = d }
-            group.leave()
-        }
-        let state = Box()
-        var timer: DispatchWorkItem?
+        let outReader = PipeReader(out.fileHandleForReading)
+        let errReader = PipeReader(err.fileHandleForReading)
+
+        var timedOut = false
         if let timeout {
-            let ref = ProcessRef(p)
-            let item = DispatchWorkItem {
-                if ref.process.isRunning {
-                    state.lock.withLock { state.timedOut = true }
-                    ref.process.terminate()
-                }
-            }
-            timer = item
             let secs = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
-            DispatchQueue.global().asyncAfter(deadline: .now() + secs, execute: item)
+            let deadline = Date(timeIntervalSinceNow: secs)
+            while p.isRunning {
+                if Date() >= deadline { timedOut = true; p.terminate(); break }
+                Thread.sleep(forTimeInterval: 0.005)
+            }
         }
-        let outData = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        group.wait()
-        timer?.cancel()
-        if state.lock.withLock({ state.timedOut }) { throw SubprocessError.timedOut(path: executable.path) }
-        return SubprocessResult(status: p.terminationStatus, stdout: outData, stderr: errBox.lock.withLock { errBox.data })
+        if timedOut {
+            // Don't hang on pipes a surviving grandchild may still hold open.
+            _ = outReader.result(timeout: .now() + 2); _ = errReader.result(timeout: .now() + 2)
+            throw SubprocessError.timedOut(path: executable.path)
+        }
+        let stdout = outReader.result() ?? Data()
+        let stderr = errReader.result() ?? Data()
+        return SubprocessResult(status: p.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
     public static func run(_ executable: URL, _ arguments: [String], environment: [String: String]? = nil,
                            currentDirectory: URL? = nil, timeout: Duration? = nil) async throws -> SubprocessResult {
         try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
+            let t = Thread {
                 cont.resume(with: Result { try runSync(executable, arguments, environment: environment,
                                                        currentDirectory: currentDirectory, timeout: timeout) })
             }
+            t.name = "Subprocess.run"
+            t.start()
         }
     }
 
