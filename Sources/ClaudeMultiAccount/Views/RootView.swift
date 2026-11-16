@@ -61,7 +61,7 @@ struct RootView: View {
             Text("Each profile is its own Claude app with a separate sign-in, chats and settings.")
         } actions: {
             Button("New Profile…") { model.activeSheet = .newProfile(nil) }
-                .buttonStyle(.glassProminent)
+                .primaryAction()
         }
     }
 }

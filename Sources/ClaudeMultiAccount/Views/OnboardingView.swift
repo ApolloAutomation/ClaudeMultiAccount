@@ -50,7 +50,7 @@ struct OnboardingView: View {
                             Button("Back") { withAnimation { step = Step(rawValue: step.rawValue - 1) ?? .welcome } }
                         }
                         Button(primaryTitle) { primary() }
-                            .buttonStyle(.glassProminent)
+                            .primaryAction()
                             .keyboardShortcut(.defaultAction)
                             .disabled(!primaryEnabled)
                     }

@@ -57,7 +57,7 @@ struct LinkPickerView: View {
                 Button("Cancel", role: .cancel) { model.routePendingLink(to: nil) }
                     .keyboardShortcut(.cancelAction)
                 Button("Open") { model.routePendingLink(to: choice) }
-                    .buttonStyle(.glassProminent)
+                    .primaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(choice == nil)
             }

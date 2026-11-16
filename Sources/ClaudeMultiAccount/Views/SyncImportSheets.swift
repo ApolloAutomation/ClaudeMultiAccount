@@ -80,7 +80,7 @@ struct SyncSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(running ? "Syncing…" : "Sync \(preview?.items.count ?? 0) Sessions") { execute() }
-                    .buttonStyle(.glassProminent)
+                    .primaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(running || preview?.items.isEmpty != false)
             }
@@ -167,7 +167,7 @@ struct ImportSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(running ? "Importing…" : "Import") { execute() }
-                    .buttonStyle(.glassProminent)
+                    .primaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(running || preview?.items.isEmpty != false)
             }

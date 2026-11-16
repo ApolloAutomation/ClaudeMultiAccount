@@ -111,7 +111,7 @@ struct NewProfileSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(primaryTitle) { create() }
-                    .buttonStyle(.glassProminent)
+                    .primaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canCreate)
             }

@@ -75,7 +75,7 @@ struct RegularClaudeView: View {
                     Button("Quit") { model.quit(target) }
                 }
                 Button(state.isRunning ? "Bring to Front" : "Open") { model.openOrFront(target) }
-                    .buttonStyle(.glassProminent)
+                    .primaryAction()
                     .disabled(desktop == nil)
             }
         }

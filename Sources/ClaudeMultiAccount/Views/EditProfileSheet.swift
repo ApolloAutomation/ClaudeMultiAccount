@@ -37,7 +37,7 @@ struct EditProfileSheet: View {
                     Button("Cancel", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
                     Button("Save") { save() }
-                        .buttonStyle(.glassProminent)
+                        .primaryAction()
                         .keyboardShortcut(.defaultAction)
                         .disabled(draft == original || nameError != nil || draft?.name.trimmingCharacters(in: .whitespaces).isEmpty != false)
                 }

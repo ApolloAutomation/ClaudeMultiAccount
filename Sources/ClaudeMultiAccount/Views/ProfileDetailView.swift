@@ -54,7 +54,7 @@ struct ProfileDetailView: View {
                     .disabled(model.isBusy("quit-\(target)"))
             }
             Button(state.isRunning ? "Bring to Front" : "Open") { model.openOrFront(target) }
-                .buttonStyle(.glassProminent)
+                .primaryAction()
                 .disabled(model.isBusy("open-\(target)"))
             Menu {
                 Button("Rebuild App…") { model.rebuild(profile) }.disabled(state.isRunning)

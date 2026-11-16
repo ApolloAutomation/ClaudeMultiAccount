@@ -51,6 +51,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // LSUIElement apps start as accessories; bring the main window forward on a normal launch.
+        guard !CommandLine.arguments.contains("--background") else { return }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+        return true
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     /// Fallback path if AppKit/SwiftUI delivers URLs through the delegate instead.
@@ -80,6 +93,7 @@ struct ClaudeMultiAccountApp: App {
                 .environment(model)
         }
         .defaultSize(width: 1000, height: 760)
+        .defaultLaunchBehavior(.presented)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Profile…") { model.activeSheet = .newProfile(nil) }
